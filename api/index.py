@@ -4,31 +4,41 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
+@app.route('/', methods=['GET'])
+def home():
+    return "<h1>Tefas API - Tarihsel Veri Modu</h1>"
+
 @app.route('/api/fund', methods=['GET'])
 def get_fund():
     code = request.args.get('code')
+    # Tarih parametrelerini al (Eğer verilmezse varsayılanları kullan)
+    start = request.args.get('start')
+    end = request.args.get('end')
+
     if not code:
-        return jsonify({"error": "Fon kodu (code) parametresi gerekli. Ornek: ?code=TCA"}), 400
+        return jsonify({"error": "Code parametresi gerekli"}), 400
     
-    # Tarihleri ayarla (Son 30 gün)
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    # Bitiş tarihi verilmezse "Bugün" olsun
+    if not end:
+        end = datetime.now().strftime("%Y-%m-%d")
+    
+    # Başlangıç tarihi verilmezse "30 gün öncesi" olsun
+    if not start:
+        start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
     
     try:
         crawler = Crawler()
-        # Veriyi çek (Sütun isimlerini netleştirelim)
-        df = crawler.fetch(start=start_date, end=end_date, name=code, columns=["date", "price"])
+        # Vercel timeout'a düşmesin diye sütunları azaltıyoruz
+        df = crawler.fetch(start=start, end=end, name=code, columns=["date", "price"])
         
         if df.empty:
-             return jsonify({"message": "Veri bulunamadı veya fon kodu hatalı."}), 404
+             return jsonify({"message": "Veri bulunamadı"}), 404
 
-        # Pandas DataFrame'i JSON formatına çevir
         result = df.to_dict(orient="records")
         return jsonify(result)
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Vercel'in bu dosyayı çalıştırması için gerekli
 if __name__ == '__main__':
     app.run()
