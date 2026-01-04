@@ -2,3 +2,4 @@ flask
 tefas-crawler
 pandas
 yfinance
+flask-cors
