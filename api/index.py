@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from tefas import Crawler
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -6,9 +7,13 @@ import pandas as pd
 
 app = Flask(__name__)
 
+# CORS'u aktif et (Tüm domainlerden gelen isteklere izin ver)
+# Bu sayede tarayıcıdan fetch attığınızda 'Access-Control-Allow-Origin' hatası almazsınız.
+CORS(app)
+
 @app.route('/', methods=['GET'])
 def home():
-    return "<h1>Finans API (Duzeltilmis Versiyon)</h1><p>TEFAS: /api/fund?code=TCA<br>Yahoo: /api/yahoo?symbol=THYAO.IS</p>"
+    return "<h1>Finans API (CORS Acik)</h1><p>TEFAS: /api/fund?code=TCA<br>Yahoo: /api/yahoo?symbol=THYAO.IS</p>"
 
 # --- 1. TEFAS FONKSIYONU ---
 @app.route('/api/fund', methods=['GET'])
@@ -20,18 +25,25 @@ def get_fund():
     if not code:
         return jsonify({"error": "Code parametresi gerekli"}), 400
     
+    # Tarih varsayılanları
     if not end: end = datetime.now().strftime("%Y-%m-%d")
     if not start: start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
     
     try:
         crawler = Crawler()
+        # Veriyi çek
         df = crawler.fetch(start=start, end=end, name=code, columns=["date", "price"])
-        if df.empty: return jsonify({"message": "Veri bulunamadı"}), 404
+        
+        if df.empty: 
+            return jsonify({"message": "Veri bulunamadı"}), 404
+            
+        # DataFrame -> JSON Dönüşümü
         return jsonify(df.to_dict(orient="records"))
+        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- 2. YAHOO FINANCE FONKSIYONU (DUZELTILDI) ---
+# --- 2. YAHOO FINANCE FONKSIYONU ---
 @app.route('/api/yahoo', methods=['GET'])
 def get_yahoo():
     symbol = request.args.get('symbol') # Örn: AAPL veya THYAO.IS
@@ -45,31 +57,29 @@ def get_yahoo():
     if not start: start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
     try:
-        # --- DEĞİŞİKLİK BURADA ---
-        # yf.download yerine Ticker.history kullanıyoruz.
-        # Bu yöntem tek hisse için 'Tuple' hatası vermez, temiz veri döner.
+        # Ticker modülü kullanıyoruz (Daha güvenilir)
         ticker = yf.Ticker(symbol)
         df = ticker.history(start=start, end=end)
         
         if df.empty:
             return jsonify({"message": "Veri bulunamadı. BIST icin sonuna .IS eklediniz mi?"}), 404
 
-        # Yahoo verisi index olarak Date tutar, onu sütuna çevirelim
+        # İndex'i sıfırla (Date sütun haline gelir)
         df = df.reset_index()
         
-        # Tarih formatını (Datetime -> String) düzeltelim
-        # Timezone bilgisini (varsa) temizleyip sadece YYYY-MM-DD yapıyoruz
+        # Tarih formatını temizle (Timezone bilgisini atıp YYYY-MM-DD yap)
         df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%Y-%m-%d')
         
-        # Sadece Tarih ve Kapanış fiyatını alalım
-        # Not: Bazen sütun isimleri küçük harf olabilir diye garantiye alıyoruz
+        # Sütun isimlendirmelerini standartlaştır (Close -> price)
+        # Bazen büyük, bazen küçük harf gelebildiği için kontrol ediyoruz
         if 'Close' in df.columns:
             df = df.rename(columns={'Date': 'date', 'Close': 'price'})
         elif 'close' in df.columns:
              df = df.rename(columns={'Date': 'date', 'close': 'price'})
              
-        # Sadece ihtiyacımız olan sütunları seçip sözlüğe çevirelim
-        result = df[['date', 'price']].to_dict(orient="records")
+        # Sadece ihtiyacımız olan sütunları al
+        # Eğer veri çok eskiyse 'price' bazen NaN gelebilir, onları temizleyelim
+        result = df[['date', 'price']].dropna().to_dict(orient="records")
         
         return jsonify(result)
 
