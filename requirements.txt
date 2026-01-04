@@ -1,2 +1,4 @@
-tefas-crawler
 flask
+tefas-crawler
+pandas
+yfinance
